@@ -10,27 +10,32 @@ CONFIG_PATH = Path(__file__).parent / "config.ini"
 
 
 def load_config():
+    """
+    Load camera IP and timeout from config.ini
+    Default timeout = 3 seconds if not specified
+    """
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH)
 
     try:
         camera_ip = config["CAMERA"]["ip"]
-        return camera_ip
+        timeout = config["CAMERA"].getint("timeout", fallback=3)
+        return camera_ip, timeout
     except KeyError:
-        return None
+        return None, None
 
 
 @app.get('/')
 def read_root():
     return {
-        'status': True,
-        'message': 'service status linescan'
+        "status": True,
+        "message": "service status linescan"
     }
 
 
 @app.get('/linescan')
 def status_linescan():
-    camera_ip = load_config()
+    camera_ip, timeout = load_config()
 
     if not camera_ip:
         raise HTTPException(
@@ -40,30 +45,40 @@ def status_linescan():
 
     try:
         output = subprocess.run(
-            ['ping', '-c', '1', '-W', '1', camera_ip],
+            ['ping', '-c', '1', '-W', str(timeout), camera_ip],
             capture_output=True,
-            text=True
+            text=True,
+            timeout=timeout + 1  # extra safety timeout
         )
 
-        status = 'OK' if output.returncode == 0 else 'NOT OK'
+        status = "OK" if output.returncode == 0 else "NOT OK"
 
         return {
-            'camera_ip': camera_ip,
-            'status': status,
-            'message': 'Connected' if status == 'OK' else 'Disconnected'
+            "camera_ip": camera_ip,
+            "timeout_seconds": timeout,
+            "status": status,
+            "message": "Connected" if status == "OK" else "Disconnected"
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "camera_ip": camera_ip,
+            "timeout_seconds": timeout,
+            "status": "NOT OK",
+            "message": "Ping Timeout"
         }
 
     except Exception:
         raise HTTPException(
             status_code=400,
-            detail='Failed ping camera'
+            detail="Failed ping camera"
         )
 
 
 if __name__ == '__main__':
     uvicorn.run(
-        'main:app',
-        host='0.0.0.0',
+        "main:app",
+        host="0.0.0.0",
         port=9001,
         reload=True,
         workers=1,
