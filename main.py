@@ -16,9 +16,10 @@ def load_config():
 
     try:
         camera_ip = config["CAMERA"]["ip"]
-        return camera_ip
+        timeout = config["CAMERA"].getint("timeout", fallback=3)  # default 3 sec
+        return camera_ip, timeout
     except KeyError:
-        return None
+        return None, None
 
 
 def ping_host(ip: str, timeout: int = 3):
@@ -37,7 +38,7 @@ def ping_host(ip: str, timeout: int = 3):
         )
 
         if result.returncode == 0:
-            # Extract latency
+            # Flexible regex (support integer or float)
             match = re.search(r'time=(\d+\.?\d*)', result.stdout)
             latency = float(match.group(1)) if match else None
             return "OK", "Connected", latency
@@ -48,8 +49,8 @@ def ping_host(ip: str, timeout: int = 3):
     except subprocess.TimeoutExpired:
         return "NOT OK", "Ping Timeout", None
 
-    except Exception:
-        return "ERROR", "Ping Execution Failed", None
+    except Exception as e:
+        return "ERROR", f"Ping Execution Failed: {str(e)}", None
 
 
 @app.get('/')
@@ -62,7 +63,7 @@ def read_root():
 
 @app.get('/linescan')
 def status_linescan():
-    camera_ip = load_config()
+    camera_ip, timeout = load_config()
 
     if not camera_ip:
         raise HTTPException(
@@ -70,10 +71,11 @@ def status_linescan():
             detail="Camera IP not found in config.ini"
         )
 
-    status, message, latency = ping_host(camera_ip, timeout=3)
+    status, message, latency = ping_host(camera_ip, timeout)
 
     return {
         "camera_ip": camera_ip,
+        "timeout_seconds": timeout,
         "status": status,
         "message": message,
         "latency_ms": latency
