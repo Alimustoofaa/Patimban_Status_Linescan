@@ -1,6 +1,7 @@
 import subprocess
 import uvicorn
 import configparser
+import re
 from fastapi import FastAPI, HTTPException
 from pathlib import Path
 
@@ -10,19 +11,45 @@ CONFIG_PATH = Path(__file__).parent / "config.ini"
 
 
 def load_config():
-    """
-    Load camera IP and timeout from config.ini
-    Default timeout = 3 seconds if not specified
-    """
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH)
 
     try:
         camera_ip = config["CAMERA"]["ip"]
-        timeout = config["CAMERA"].getint("timeout", fallback=3)
-        return camera_ip, timeout
+        return camera_ip
     except KeyError:
-        return None, None
+        return None
+
+
+def ping_host(ip: str, timeout: int = 3):
+    """
+    Return:
+        status (str)
+        message (str)
+        latency (float or None)
+    """
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", str(timeout), ip],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 1  # safety timeout
+        )
+
+        if result.returncode == 0:
+            # Extract latency
+            match = re.search(r'time=(\d+\.?\d*)', result.stdout)
+            latency = float(match.group(1)) if match else None
+            return "OK", "Connected", latency
+
+        else:
+            return "NOT OK", "Host Unreachable", None
+
+    except subprocess.TimeoutExpired:
+        return "NOT OK", "Ping Timeout", None
+
+    except Exception:
+        return "ERROR", "Ping Execution Failed", None
 
 
 @app.get('/')
@@ -35,7 +62,7 @@ def read_root():
 
 @app.get('/linescan')
 def status_linescan():
-    camera_ip, timeout = load_config()
+    camera_ip = load_config()
 
     if not camera_ip:
         raise HTTPException(
@@ -43,36 +70,14 @@ def status_linescan():
             detail="Camera IP not found in config.ini"
         )
 
-    try:
-        output = subprocess.run(
-            ['ping', '-c', '1', '-W', str(timeout), camera_ip],
-            capture_output=True,
-            text=True,
-            timeout=timeout + 1  # extra safety timeout
-        )
+    status, message, latency = ping_host(camera_ip, timeout=3)
 
-        status = "OK" if output.returncode == 0 else "NOT OK"
-
-        return {
-            "camera_ip": camera_ip,
-            "timeout_seconds": timeout,
-            "status": status,
-            "message": "Connected" if status == "OK" else "Disconnected"
-        }
-
-    except subprocess.TimeoutExpired:
-        return {
-            "camera_ip": camera_ip,
-            "timeout_seconds": timeout,
-            "status": "NOT OK",
-            "message": "Ping Timeout"
-        }
-
-    except Exception:
-        raise HTTPException(
-            status_code=400,
-            detail="Failed ping camera"
-        )
+    return {
+        "camera_ip": camera_ip,
+        "status": status,
+        "message": message,
+        "latency_ms": latency
+    }
 
 
 if __name__ == '__main__':
