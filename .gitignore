@@ -1,0 +1,27 @@
+Python
+
+pycache/ .py[cod] .pyo .pyd .so
+
+Virtual Environment
+
+venv/ .env/ .env.*
+
+Uvicorn / FastAPI
+
+*.log
+
+OS Files
+
+.DS_Store Thumbs.db
+
+IDE
+
+.vscode/ .idea/
+
+Testing
+
+.pytest_cache/ .coverage
+
+Local Config (optional - remove if you want to version it)
+
+config.ini
